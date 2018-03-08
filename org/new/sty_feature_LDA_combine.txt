@@ -1,0 +1,212 @@
+import scala.collection.mutable.Set
+//import org.apache.spark.mllib.linalg.Vector
+//import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.linalg.Vectors
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.sql.Row
+import org.apache.spark.mllib.classification.SVMWithSGD
+import org.apache.spark.mllib.classification.SVMModel
+import org.apache.spark.mllib.classification.LogisticRegressionWithSGD
+import org.apache.spark.mllib.classification.LogisticRegressionModel
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.LogisticRegressionModel
+import org.apache.spark.ml.feature.{RegexTokenizer, Tokenizer}
+import org.apache.spark.ml.feature.StopWordsRemover
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.mllib.clustering.DistributedLDAModel;
+import org.apache.spark.mllib.clustering.LDA;
+import org.apache.spark.mllib.linalg.Matrix;
+import org.apache.spark.ml.feature.{CountVectorizer, CountVectorizerModel}
+import org.apache.spark.ml.clustering.KMeans
+import org.apache.spark.ml.clustering.KMeansModel
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.functions.udf
+
+object SimpleApp {
+
+
+	def return_train_label(s:String,authorname_s:String):Double={
+		val id_array = s.split("-")
+		val author = id_array(0)
+		var label = 0
+		
+		println("author name : " + author)
+		
+		val author_array = author.split("/")
+		val author_name = author_array(author_array.length-1)
+		println(author_name)
+		if(author_name == authorname_s){
+			label = 1
+		}
+		return label
+	}
+	
+	def return_test_label(s:String,authorname_s:String):Double={
+		val id_array = s.split("-")
+		val author = id_array(0)
+		var label = 0
+		
+		println("author name : " + author)
+		
+		val author_array = author.split("/")
+		val author_name = author_array(author_array.length-1)
+		//println(author_name)
+		if(author_name == authorname_s){
+			label = 1
+		}
+		return label
+	}
+	def return_richofdifficulty(s:Array[String]):Double = {
+		val s_array = s
+		val sarray_len = s_array.length
+		//var index = 0
+		var word_index = 0
+		var word_set = Set("")
+		for(word_index <- 0 to sarray_len-1){
+			word_set += s_array(word_index)
+		}
+		val M = word_set.size.toDouble-1
+		//val R = 1.0
+		//val R = 100*math.log10(M)/math.pow(M,2)
+		val R = M/(sarray_len.toDouble)
+		return R	
+	}
+	def return_meanwordlen(s:Array[String]):Double = {
+		var index = 0
+		var total_len = 0
+		val word_num = s.length
+		for(index <- 0 to word_num-1){
+			total_len = total_len + s(index).length
+		}
+		return total_len.toDouble/word_num.toDouble
+	}
+	
+
+    def main(args: Array[String]) {
+        val conf = new SparkConf().setAppName("Simple Application")
+        val sc = new SparkContext(conf)
+		val sqlContext= new org.apache.spark.sql.SQLContext(sc)
+		import sqlContext.implicits._
+		
+		
+		
+		//val filespath = "D:project/books/train"
+		
+		
+		//val filespath = args(0)+"/train"
+		//val author_name = args(1)
+		//val files = sc.wholeTextFiles(filespath,2)
+		//val sentenceDf = files.toDF("bookid","sentence")
+		//val sentenceDataFrame = sentenceDf.map(s=>(s(0).toString,s(1).toString.substring(12000,32000))).toDF("bookid","sentence")
+		val regexTokenizer = new RegexTokenizer().setInputCol("sentence").setOutputCol("words").setPattern("\\W")
+		val countTokens = udf { (words: Seq[String]) => words.length }
+		
+		
+		//使用regexTokenizer分词，这个效果比较好，可以解决中间逗号之类问题，比较强大。\\W可以改其他，再研究
+		//val regexTokenized = regexTokenizer.transform(sentenceDataFrame)
+		//惯用词去除
+		//val id_words = regexTokenized.select("bookid","words")
+		val remover = new StopWordsRemover().setInputCol("words").setOutputCol("filtered")
+		
+		/*
+		val remover_df = remover.transform(regexTokenized)
+		val book_train_df = remover_df.map(s=>(s(0).toString,s.getSeq[String](3).toArray.length.toDouble/s.getSeq[String](2).toArray.length.toDouble,return_richofdifficulty(s.getSeq[String](2).toArray),return_richofdifficulty(s.getSeq[String](3).toArray),return_meanwordlen(s.getSeq[String](2).toArray)))
+		val feature_train = book_train_df.map(s=>(return_train_label(s._1.toString,author_name),Vectors.dense(List(s._2,s._3,s._4,s._5).toSeq.toArray.map{x=>x.asInstanceOf[Double]}))).toDF("label","features")
+		val mlr = new LogisticRegression().setMaxIter(10)
+		//feature.map(s=>Vectors.dense(List(s(1).toString).toSeq.toArray.map{x=>x.asInstanceOf[Double]}))
+		val mlr_model = mlr.fit(feature_train)
+		
+		val filespath_test = args(0)+"/test"
+		val files_test = sc.wholeTextFiles(filespath_test,2)
+		val sentenceDf_test = files_test.toDF("bookid","sentence")
+		val sentenceDataFrame_test = sentenceDf_test.map(s=>(s(0).toString,s(1).toString.substring(12000,32000))).toDF("bookid","sentence")
+		val regexTokenized_test = regexTokenizer.transform(sentenceDataFrame_test)
+		val remover_df_test = remover.transform(regexTokenized_test)
+		val book_test_df = remover_df_test.map(s=>(s(0).toString,s.getSeq[String](3).toArray.length.toDouble/s.getSeq[String](2).toArray.length.toDouble,return_richofdifficulty(s.getSeq[String](2).toArray),return_richofdifficulty(s.getSeq[String](3).toArray),return_meanwordlen(s.getSeq[String](2).toArray)))
+		val feature_test = book_test_df.map(s=>(return_test_label(s._1.toString,author_name),Vectors.dense(List(s._2,s._3,s._4,s._5).toSeq.toArray.map{x=>x.asInstanceOf[Double]}))).toDF("label","features")
+		feature_test.cache()
+		val lr_result = mlr_model.transform(feature_test)
+		val accuarcy = lr_result.filter(s=>(s(4)==1&&s(0)==1)).count.toDouble/lr_result.filter(s=>s(4)==1).count.toDouble
+		val recall = lr_result.filter(s=>(s(4)==1&&s(0)==1)).count.toDouble/lr_result.filter(s=>s(0)==1).count.toDouble
+		
+		println("acurract to distinguish to detect " + author_name + " in ten author = " + accuarcy)
+		println("recall to distinguish to detect " + author_name + " in ten author = " + recall)
+
+
+		println("===== Enter to cluster the writing style =====")
+		Console.readLine
+
+		*/
+		val filespath_all = args(0)+"/all"
+		val files_all = sc.wholeTextFiles(filespath_all,2)
+		val sentenceDf_all = files_all.toDF("bookid","sentence")
+		val sentenceDataFrame_all = sentenceDf_all.map(s=>(s(0).toString,s(1).toString.substring(12000,32000))).toDF("bookid","sentence")
+		val regexTokenized_all = regexTokenizer.transform(sentenceDataFrame_all)
+		val remover_df_all = remover.transform(regexTokenized_all)
+		val book_all_df = remover_df_all.map(s=>(s(0).toString,return_richofdifficulty(s.getSeq[String](2).toArray),return_richofdifficulty(s.getSeq[String](3).toArray),return_meanwordlen(s.getSeq[String](2).toArray)))
+		println("=====")
+		println(book_all_df.count)
+		println("=====")
+		//val book_all_df = remover_df_all.map(s=>(s(0).toString))
+		/*
+		val book_all_df = remover_df_all.map(s=>(s(0).toString,s.getSeq[String](3).toArray.length.toDouble/s.getSeq[String](2).toArray.length.toDouble,return_richofdifficulty(s.getSeq[String](2).toArray),return_richofdifficulty(s.getSeq[String](3).toArray),return_meanwordlen(s.getSeq[String](2).toArray)))
+		val features_kmeans= book_all_df.map(s=>(s._1.toString,Vectors.dense(List(s._2,s._3,s._4,s._5).toSeq.toArray.map{x=>x.asInstanceOf[Double]}))).toDF("bookname","features")
+		features_kmeans.cache()
+		var k = 2
+		for(k <- 2 to 8){
+			val k_means = new KMeans()
+			k_means.setK(k)
+			val k_model = k_means.fit(features_kmeans)
+			val distance = k_model.computeCost(features_kmeans)
+			//distance.cache()
+			println("distace(k="+k.toString+"):"+distance.toString)
+		}
+		println("=========input appropriciate k :=================")
+		val chosen_k  = Console.readLine
+		val k_means = new KMeans()
+		k_means.setK(chosen_k.toInt)
+		val k_model = k_means.fit(features_kmeans)
+		val kmeans_result = k_model.transform(features_kmeans)
+		kmeans_result.printSchema
+		*/
+		println("=========Enter to LDA :=================")
+		
+		
+		val cvModel: CountVectorizerModel = new CountVectorizer().setInputCol("filtered").setOutputCol("features").setVocabSize(3).setMinDF(1).fit(remover_df_all)
+		val doc_vectors = cvModel.transform(remover_df_all)
+		val doc_vectors_fill = doc_vectors.select("bookid","filtered","features")
+		val doc_vectors_withindex = doc_vectors_fill.rdd.zipWithIndex.map(_.swap)
+		//link unique id and the name of document
+		//match documentid and its name
+		val id_docname = doc_vectors_withindex.map(s=>(s._1,s._2(0).toString))
+		//match documentid and its name
+		val id_bookid = doc_vectors_withindex.map(s=>(s._1,s._2(1).toString))
+		val id_features = doc_vectors_withindex.map(s=>(s._1,s._2(2).toString.split('[')(2).split(']')(0)))
+		val parseData = id_features.map(s=>(s._1,org.apache.spark.mllib.linalg.Vectors.dense(s._2.trim.split(',').map(_.toDouble))))
+		//ldaModel.save(sc, "target/org/apache/spark/LatentDirichletAllocationExample/LDAModel")
+		//val sameModel = DistributedLDAModel.load(sc,"target/org/apache/spark/LatentDirichletAllocationExample/LDAModel")
+		val ldaModel = new LDA().setK(3).run(parseData)
+		ldaModel.save(sc, args(2))
+		
+		val sameModel = DistributedLDAModel.load(sc,args(2))
+		val topic_document = sameModel.topTopicsPerDocument(1)
+		println("=====LDA tringing finished=====")
+		println("=====Enter to show result=====")
+		Console.readLine
+		
+		println("=====id_docname====:")
+		id_docname.foreach(s=>println(s))
+		println("=====toptopicsperdocument====")
+		topic_document.foreach(s=>println("bookid:"+s._1.toString+"---firstdocument:"+s._2(0).toString))
+		
+		println("=====clusering based on writing style=====")
+		//kmeans_result.foreach(s=>println(s))
+		//println(ldaModel.docConcentration)
+        //println("finished")
+		
+    }
+}

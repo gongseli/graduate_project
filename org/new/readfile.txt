@@ -1,0 +1,142 @@
+import org.apache.spark.sql.SQLContext
+import scala.io.Source
+import java.io._
+import org.apache.spark.ml.feature.Word2Vec
+import org.apache.spark.ml.feature.Word2VecModel
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.LogisticRegressionModel
+import scala.collection.mutable.Set
+object SimpleApp {
+
+	def subdirs(dir: File): Iterator[File] = {  
+		val d = dir.listFiles.filter(_.isDirectory)  
+		val f = dir.listFiles.toIterator  
+		f ++ d.toIterator.flatMap(subdirs _) 
+		return f
+    }  
+	def return_bookname(path: String):String = {
+		val bookname_raw = path.split("\\\\")
+		val bookname_txt = bookname_raw(bookname_raw.length-1)
+		val bookname_txt_array = bookname_txt.split('.')
+		val bookname = bookname_txt_array(0)
+		return bookname
+	}
+
+	def main(args: Array[String]) {
+		val sqlContext = new SQLContext(sc)
+		//path :: the path of original books
+		
+		//D:\project\books\tmp\raw
+		val path = "D:/project/books/tmp/raw"
+		val file_split_path = "D:/project/books/tmp/split"
+		val bookname_iterator = subdirs(new File(path))
+		//w2v 模型加载地址："D:/tmp/w2c"
+		val w2c_model = Word2VecModel.load("D:/tmp/w2c")
+		//lr 模型加载地址："D:/tmp/model"
+		val mlr_model = LogisticRegressionModel.load("D:/tmp/model")
+		
+		val lanscape_words_path = "D:/Learn/hku/project/signeddata/lanscape description words.txt"
+		var lanscape_string = ""
+		for(line<-Source.fromFile(lanscape_words_path,"utf-8").getLines())
+			//for(line<-Source.fromBytes(bookname_path).getLines())
+			lanscape_string = lanscape_string + line
+		val lanscape_words_array = lanscape_string.split(" ")
+		val lanscape_set = Set("")
+		for(lanscape_word<-lanscape_words_array)
+			lanscape_set.add(lanscape_word)
+		lanscape_set.remove("")
+		
+		
+		
+		
+		
+		
+		while(bookname_iterator.hasNext){
+			val bookname_path = bookname_iterator.next()
+			var file_string = ""
+			for(line<-Source.fromFile(bookname_path,"utf-8").getLines())
+			//for(line<-Source.fromBytes(bookname_path).getLines())
+				file_string = file_string + "\n" + line
+				//file_string = file_string + " " + line
+			val file_length = file_string.length
+			val file_start = file_string.substring(file_length/10,file_length/10*3)
+			val file_mid = file_string.substring(file_length/10*4,file_length/10*6)
+			val file_finish = file_string.substring(file_length/10*7,file_length/10*9)
+			val file_temp = file_string.substring(1000,6000)
+			val temp_array = file_temp.split(" ")
+			var record = 0
+			for(temp<-temp_array)
+				if(lanscape_set.exists(_==temp))
+					record = record + 1
+			println("=====")
+			println(record)
+			println("=====")
+			val bookname = return_bookname(bookname_path.toString)
+			println(bookname)
+			val file_start_split = file_start.replaceAll("\n"," ").split("[\\,,\\.,\\?,\\!,\\:,\\;]")
+			val file_mid_split = file_mid.replaceAll("\n"," ").split("[\\,,\\.,\\?,\\!,\\:,\\;]")
+			val file_finish_split = file_finish.replaceAll("\n"," ").split("[\\,,\\.,\\?,\\!,\\:,\\;]")
+			val start_path = file_split_path + "/" + bookname +"_start.txt"
+			val mid_path = file_split_path + "/" + bookname +"_mid.txt"
+			val finish_path = file_split_path + "/" + bookname +"_finish.txt"
+			val writer_start = new PrintWriter(new File(start_path))
+			for(line_start<-file_start_split)
+				if(line_start.length>30)
+					writer_start.write(line_start.trim()+"\n")
+			writer_start.close()
+			val writer_mid = new PrintWriter(new File(mid_path))
+			for(line_mid<-file_mid_split)
+				if(line_mid.length>30)
+					writer_mid.write(line_mid.trim()+"\n")
+			writer_mid.close()
+			val writer_finish = new PrintWriter(new File(finish_path))
+			for(line_finish<-file_finish_split)
+				if(line_finish.length>30)
+					writer_finish.write(line_finish.trim()+"\n")
+			writer_finish.close()
+			
+			val df_file_start = sc.textFile(start_path,2)
+			//val df_file_start = sc.textFile(finish_path,2)
+			//println(df_file.count)
+			val df_file_vec = df_file_start.map(s=>s.split(" ")).toDF("text")
+			val df_w2c = w2c_model.transform(df_file_vec)
+			val lr_result = mlr_model.transform(df_w2c)
+			println(lr_result.filter(s=>(s(4)==1)).count.toDouble/lr_result.count.toDouble)
+			
+		}
+		
+		
+		val bookname_list = List("Jack london-novel-John Barleycorn","Jack london-novel-Lost Face")
+		var x = ""
+		for(x <- bookname_list){
+			val newpath = path+"/"+x+".txt"
+			//println(newpath)
+			val df_file = sc.textFile(newpath,2)
+			println(df_file.count)
+		}
+		val rdd = sc.wholeTextFiles(path,2)
+		
+		val newpath = path+"/"+"Jack london-novel-John Barleycorn"+".txt"
+		val newpath_start = path+"/"+"Jack london-novel-John Barleycorn1"+".txt"
+		var file_string = ""
+		for(line<-Source.fromFile(newpath).getLines())
+			file_string = file_string + "\n" + line
+		val file_length = file_string.length
+		val file_start = file_string.substring(file_length/10,file_length/10*3)
+		val file_mid = file_string.substring(file_length/10*4,file_length/10*6)
+		val file_finish = file_string.substring(file_length/10*7,file_length/10*9)
+		
+		val writer = new PrintWriter(new File(newpath_start))
+		writer.write(file_start)
+		writer.close()
+		
+		
+		
+		val df_file = sc.textFile(newpath,2)
+		println(df_file.count)
+		
+		
+		while (res22.hasNext){
+         println(res22.next())
+      }
+		

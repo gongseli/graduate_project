@@ -1,0 +1,53 @@
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.ml.feature.Word2Vec
+import org.apache.spark.ml.feature.Word2VecModel
+import org.apache.spark.ml.classification.LogisticRegression
+import org.apache.spark.ml.classification.LogisticRegressionModel
+object SimpleApp {
+
+	def main(args: Array[String]) {
+		val sqlContext = new SQLContext(sc)
+		
+		//训练Wordvec数据集
+		val path_wrod2vec = "D:/tmp/word2vec.txt"
+		
+		val path_pos = "D:/tmp/result_pos.txt"
+		val path_neg = "D:/tmp/result_neg.txt"
+		
+		
+		val rdd_pos = sc.textFile(path_pos,2)
+		val rdd_neg = sc.textFile(path_neg,2)
+		val rdd_pos_sign = rdd_pos.map(s=>(s,1))
+		val rdd_neg_sign = rdd_neg.map(s=>(s,0))
+		val rdd_wrod2vec = sc.textFile(path_wrod2vec,2)
+		
+		//val doc_word2vec = rdd_wrod2vec.map(s=>s.split(" ")).map(Tuple1.apply).toDF("text")
+		//val doc_pos = rdd_pos.map(s=>s.split(" ")).map(Tuple1.apply).toDF("text")
+		//val doc_neg = rdd_neg.map(s=>s.split(" ")).map(Tuple1.apply).toDF("text")
+		val doc_word2vec = rdd_wrod2vec.map(s=>s.split(" ")).toDF("text")
+		val doc_pos = rdd_pos_sign.map(s=>(s._1.toString.split(" "),s._2)).toDF("text","label")
+		val doc_neg = rdd_neg_sign.map(s=>(s._1.toString.split(" "),s._2)).toDF("text","label")
+		
+		//val_doc_pos_sign = doc_pos.map(Tuple1.apply)
+		
+		//val documentDF = sqlContext.createDataFrame(Seq("Hi I heard about Spark".split(" "),"I wish Java could use case classes".split(" "),"Logistic regression models are neat".split(" ")).map(Tuple1.apply)).toDF("text")
+		//val documentDF = sqlContext.createDataFrame(Seq("Hi I heard about Spark","I wish Java could use case classes","Logistic regression models are neat").map(Tuple1.apply)).toDF("text")
+		val word2Vec = new Word2Vec().setInputCol("text").setOutputCol("features").setVectorSize(3).setMinCount(0)
+		val model = word2Vec.fit(doc_word2vec)
+		
+		
+		val pos_df = model.transform(doc_pos)
+		val neg_df = model.transform(doc_neg)
+		//val pos_df_sign = pos_df.map(s=>(s(0)))
+		val pos_neg_df = pos_df.union(neg_df)
+		val mlr = new LogisticRegression().setMaxIter(10)
+		val mlr_model = mlr.fit(pos_neg_df)
+		
+		
+		val path_cross = "D:/tmp/temp.txt"
+		val rdd_cross = sc.textFile(path_cross,2)
+		val doc_cross = rdd_cross.map(s=>s.split(" ")).toDF("text")
+		val cross_df = model.transform(doc_cross)
+		val lr_result = mlr_model.transform(cross_df)
+	}
+}
